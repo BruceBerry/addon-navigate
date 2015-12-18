@@ -1,0 +1,27 @@
+{
+  "name": "addon-navigate",
+  "version": "0.0.1",
+  "description": "Addon-SDK module to navigate the browser to a list of URLs.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "engines": {
+    "firefox": ">=38.0a1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BruceBerry/addon-navigate"
+  },
+  "keywords": [
+    "firefox",
+    "addon-sdk",
+    "navigate"
+  ],
+  "author": "Riccardo Pelizzi",
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/BruceBerry/addon-navigate/issues"
+  },
+  "homepage": "https://github.com/BruceBerry/addon-navigate"
+}
