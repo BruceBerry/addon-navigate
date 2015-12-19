@@ -37,9 +37,13 @@ var saveMime = [
 
 var cookieManager = Cc["@mozilla.org/cookiemanager;1"].getService(Ci.nsICookieManager);
 
+// if doOff = false, then the off part is immediately completed
+var isHalfCompleted = function(h, opts) {
+  return !h || h.times.length >= opts.times || h.errors >= opts.errors;
+};
+
 var isSiteCompleted = function(s, opts) {
-  return (s.on.times.length >= opts.times && s.off.times.length >= opts.times) ||
-    (s.on.errors + s.off.errors >= opts.errors);
+  return isHalfCompleted(s.on, opts) && isHalfCompleted(s.off, opts);
 };
 
 var notc = f => function() { return !f.apply(this, arguments); };
@@ -47,24 +51,24 @@ var notc = f => function() { return !f.apply(this, arguments); };
 
 // main entry point:
 // sites: array of sites (new navigation) or result of cbs.end (completed/in progress)
-// opts: times, errors, random, doOff, loadDelay
+// opts: times, errors, random, doOff, timeout, loadDelay
 // cbs: end(sites), extraprefs()/extraglobals(), turnOn()/turnOff(), beforeOpen(site, which)/beforeClose(site, which, tab, isTimeout)
 exports.navigate = function(sites, opts, cbs) {
   if (sites.length === 0)
     return cbs.end && cbs.end();
   // if input is a simple array list, prepare the proper format
-  if (Array.isArray(sites[0]))
+  if (typeof sites[0] === "string")
     sites = sites.map(function(site, i) {
-      return {id: i, url: site, on: {times: [], errors: 0}, off: {times: [], errors: 0}};
+      return {id: i, url: site, on: {times: [], errors: 0}, off: opts.doOff ? {times: [], errors: 0} : undefined};
     });
 
   console.log("Sites left: ", sites.filter(notc(isSiteCompleted)).length);
   
   // prefs.set("permissions.default.image", 2);
   prefs.set("browser.helperApps.alwaysAsk.force", false);
-  prefs.set("browser.helperApps.neverAsk.saveToDisk", saveMime);
+  prefs.set("browser.helperApps.neverAsk.saveToDisk", saveMime.join(","));
   prefs.set("browser.download.defaultFolder", "/tmp");
-  cbs.extraPrefs && cbs.extraPrefs();
+  cbs.extraPrefs && cbs.extraPrefs(prefs);
 
   addGlobals(function(w, cloner) {
     w.alert = function() { };
@@ -83,27 +87,26 @@ exports.navigate = function(sites, opts, cbs) {
 };
 
 var pick = function(sites, opts) {
-  var remaining = sites.filter(notc(isSiteCompleted));
-  if (remaining.length === 0)
-    return null;
-  if (opts.random) {
-    return remaining[Math.floor(Math.random() * remaining.length)];
-  } else {
-    return remaining[0];
+  var shift = opts.random ? Math.floor(Math.random() * sites.length) : 0;
+  for (var i = 0; i < sites.length; i++) {
+    var site = sites[(shift + i) % sites.length];
+    if (!isSiteCompleted(site, opts))
+      return site;
   }
+  return null;
 };
 
 var doOne = function(sites, opts, cbs) {
   var site = pick(sites, opts);
   if (!site)
-    return cbs.end();
+    return cbs.end(sites);
 
   // first do 'on', then 'off'
-  var which = (site.on.times.length < opts.times && site.on.errors < opts.errors) ?
-    site.on : site.off;
+  var whichKey = !isHalfCompleted(site.on, opts) ? "on": "off"; // they can't be both complete
+  var which = site[whichKey];
   which === site.on ? (cbs.turnOn && cbs.turnOn()) : (cbs.turnOff && cbs.turnOff());
 
-  cbs.beforeOpen && cbs.beforeOpen(site, which);
+  cbs.beforeOpen && cbs.beforeOpen(site, whichKey);
 
   cookieManager.removeAll();
 
@@ -116,10 +119,10 @@ var doOne = function(sites, opts, cbs) {
       timeoutId = timers.setTimeout(function() {
         console.log("Timeout for tab ", tab.url);
         which.errors++;
-        cbs.beforeClose && cbs.beforeClose(site, which, tab, true);
+        cbs.beforeClose && cbs.beforeClose(site, whichKey, tab, true);
         tab.close();
         doOne(sites, opts, cbs);
-      }, opts.timeout);
+      }, opts.timeout * 1000);
     },
     onLoad: function(tab) {
       console.log("Load event for ", tab.url);
@@ -128,10 +131,10 @@ var doOne = function(sites, opts, cbs) {
       which.times.push(endTime - startTime);
 
       timers.setTimeout(function() {
-        cbs.beforeClose && cbs.beforeClose(site, which, tab, false);
+        cbs.beforeClose && cbs.beforeClose(site, whichKey, tab, false);
         tab.close();
         doOne(sites, opts, cbs);
-      }, opts.loadDelay);
+      }, opts.loadDelay * 1000);
     }
   });
 
