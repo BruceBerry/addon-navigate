@@ -1,6 +1,6 @@
 {
   "name": "addon-navigate",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Addon-SDK module to navigate the browser to a list of URLs.",
   "main": "index.js",
   "scripts": {
