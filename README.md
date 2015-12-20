@@ -7,7 +7,7 @@ callbacks provided.
 
 ## Usage
 
-    var {navigate} = requrie("addon-navigate");
+    var {navigate} = require("addon-navigate");
 
     navigate(["http://www.google.com", ...], {
       times: 2, // # of times to load each site
@@ -17,7 +17,7 @@ callbacks provided.
       timeout: 10, // maximum time to wait for the site to load
       loadDelay: 2 // time to wait after the load event for further analysis
     }, {
-      end: function(sites) { },
+      end: function(sites) { /* save data */ },
       extraPrefs: function(prefs) {
         // supplies the prefs addon-sdk module
       },
