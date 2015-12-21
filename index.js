@@ -35,6 +35,10 @@ var saveMime = [
   "chemical/x-chemdraw"
 ];
 
+Array.prototype.pick = function() {
+  return this[Math.floor(Math.random() * this.length)];
+};
+
 var cookieManager = Cc["@mozilla.org/cookiemanager;1"].getService(Ci.nsICookieManager);
 
 // if doOff = false, then the off part is immediately completed
@@ -48,29 +52,42 @@ var isSiteCompleted = function(s, opts) {
 
 var notc = f => function() { return !f.apply(this, arguments); };
 
+Object.prototype.defaults = function(def) {
+  Object.keys(def).forEach(function(k) {
+    if (this[k] === undefined)
+      this[k] = def[k];
+  });
+};
 
-// main entry point:
-// sites: array of sites (new navigation) or result of cbs.end (completed/in progress)
-// opts: times, errors, random, doOff, timeout, loadDelay
-// cbs: end(sites), extraprefs()/extraglobals(), turnOn()/turnOff(), beforeOpen(site, which)/beforeClose(site, which, tab, isTimeout)
-exports.navigate = function(sites, opts, cbs) {
+exports.navigate = function(sites, opts, handler) {
+  ["extraPrefs", "extraGlobals", "turnOff", "turnOn"] // TODO: finish
+    .forEach(k => { handler[k] = handler[k] || () => undefined });
+  handler.doOne = doOne;
+  opts.defaults({
+    times: 1,
+    errors: 1,
+    timeout: 10,
+    loadDelay: 0,
+    random: true,
+    abTesting: false
+  });
+
+  handler.sites = sites;
+  handler.site = null;
+  handler.half = null;
+  handler.opts = opts;
+
   if (sites.length === 0)
-    return cbs.end && cbs.end();
-  // if input is a simple array list, prepare the proper format
-  if (typeof sites[0] === "string")
-    sites = sites.map(function(site, i) {
-      return {id: i, url: site, on: {times: [], errors: 0}, off: opts.doOff ? {times: [], errors: 0} : undefined};
-    });
-
-  console.log("Sites left: ", sites.filter(notc(isSiteCompleted)).length);
+    return handler.end();
   
-  // prefs.set("permissions.default.image", 2);
+  // prevent save file dialogs
   prefs.set("browser.helperApps.alwaysAsk.force", false);
   prefs.set("browser.helperApps.neverAsk.saveToDisk", saveMime.join(","));
   prefs.set("browser.download.defaultFolder", "/tmp");
-  cbs.extraPrefs && cbs.extraPrefs(prefs);
+  handler.extraPrefs(prefs);
 
   addGlobals(function(w, cloner) {
+    // prevent js dialogs
     w.alert = function() { };
     w.confirm = function() { return false; };
     w.prompt = function() { return null; };
@@ -80,11 +97,26 @@ exports.navigate = function(sites, opts, cbs) {
     if (eventType.toLowerCase() !== "beforeunload")
       return w.__addEventListener(eventType, fun, bubble);
     };
-    cbs.extraGlobals && cbs.extraGlobals(w, cloner);
+    // store exception messages
+    w.onerror = function(msg) {
+      handler.half.jsErrors.push(msg);
+    };
+    handler.extraGlobals(w, cloner);
   });
 
-  doOne(sites, opts, cbs);
+  handler.doOne();
 };
+
+exports.prepareSite = function(site, opts) {
+  if (typeof site === "string") {
+    return {
+      url: site,
+      on: {times: [], netErrors: 0, jsErrors: []},
+      off: opts.abTesting ? {times: [], netErrors: 0, jsErrors: []} : undefined
+    };
+  }
+  return site;
+}
 
 var pick = function(sites, opts) {
   var shift = opts.random ? Math.floor(Math.random() * sites.length) : 0;
@@ -96,17 +128,24 @@ var pick = function(sites, opts) {
   return null;
 };
 
-var doOne = function(sites, opts, cbs) {
-  var site = pick(sites, opts);
+var doOne = function() {
+  var site = pick(this.sites, this.opts);
   if (!site)
-    return cbs.end(sites);
+    return this.end(this.sites);
+  handler.site = site;
 
-  // first do 'on', then 'off'
-  var whichKey = !isHalfCompleted(site.on, opts) ? "on": "off"; // they can't be both complete
-  var which = site[whichKey];
-  which === site.on ? (cbs.turnOn && cbs.turnOn()) : (cbs.turnOff && cbs.turnOff());
+  var half;
+  if (opts.abTesting) {
+    var onOrOff = ["on", "off"].filter(k => !isHalfCompleted(site[k], opts)).pick();
+    half = site[onOrOff];
+    half === site.on ? (handler.turnOn()) : (handler.turnOff());
+  } else {
+    half = site.on;
+  }
+  handler.half = half;
 
-  cbs.beforeOpen && cbs.beforeOpen(site, whichKey);
+
+  handler.beforeOpen();
 
   cookieManager.removeAll();
 
@@ -117,7 +156,6 @@ var doOne = function(sites, opts, cbs) {
     onOpen: function(tab) {
       startTime = (new Date()).getTime();
       timeoutId = timers.setTimeout(function() {
-        console.log("Timeout for tab ", tab.url);
         which.errors++;
         cbs.beforeClose && cbs.beforeClose(site, whichKey, tab, true);
         tab.close();
@@ -125,7 +163,6 @@ var doOne = function(sites, opts, cbs) {
       }, opts.timeout * 1000);
     },
     onLoad: function(tab) {
-      console.log("Load event for ", tab.url);
       timers.clearTimeout(timeoutId);
       var endTime = (new Date()).getTime();
       which.times.push(endTime - startTime);

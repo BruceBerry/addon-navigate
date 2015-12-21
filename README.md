@@ -1,7 +1,22 @@
 # addon-navigate
 
 Addon-SDK module to navigate the browser to a list of URLs, one after the
-other. It supports A/B testing and loading the site multiple times to get
+other. Use `navigate` to navigate to a new list of sites, or resuming an
+existing navigation.
+
+Features supported out of the box through the `opts` parameter:
+
+* `times`: Load the same site N times, calculating the average load time and
+  logging all js errors. (default=1)
+* `errors`: give up visiting a site after N timeouts (default=1)
+* `timeout`: number of seconds before considering the navigation a network
+  error. (default=10)
+* `loadDelay`: after the `load` event, wait another N seconds before performing
+  further analysis and navigating to the next page. (default=0)
+* `random`: pick a new site at random or go sequentially. (default=true)
+* `abTesting`: A/B Testing: load the same site twice, turning a specific feature on and off (default=false)
+
+It supports A/B testing and loading the site multiple times to get
 average loading times. It can be used for other analyses through the optional
 callbacks provided.
 
@@ -10,12 +25,12 @@ callbacks provided.
     var {navigate} = require("addon-navigate");
 
     navigate(["http://www.google.com", ...], {
-      times: 2, // # of times to load each site
-      errors: 1, // # of times to retry if the load times out
+      times: 2,
+      errors: 1,
+      timeout: 10,
+      loadDelay: 2,
       random: true, // pick a site randomly or go in order.
-      doOff: true, // A/B testing, loads the site another `times` # of times with another configuration
-      timeout: 10, // maximum time to wait for the site to load
-      loadDelay: 2 // time to wait after the load event for further analysis
+      abtesting: true, // A/B testing, loads the site another `times` # of times with another configuration
     }, {
       end: function(sites) { /* save data */ },
       extraPrefs: function(prefs) {
