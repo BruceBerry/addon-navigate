@@ -45,134 +45,130 @@ var cookieManager = Cc["@mozilla.org/cookiemanager;1"].getService(Ci.nsICookieMa
 var isHalfCompleted = function(h, opts) {
   return !h || h.times.length >= opts.times || h.errors >= opts.errors;
 };
-
 var isSiteCompleted = function(s, opts) {
   return isHalfCompleted(s.on, opts) && isHalfCompleted(s.off, opts);
 };
 
-var notc = f => function() { return !f.apply(this, arguments); };
 
-Object.prototype.defaults = function(def) {
-  Object.keys(def).forEach(function(k) {
-    if (this[k] === undefined)
-      this[k] = def[k];
-  });
-};
 
-exports.navigate = function(sites, opts, handler) {
-  ["extraPrefs", "extraGlobals", "turnOff", "turnOn"] // TODO: finish
-    .forEach(k => { handler[k] = handler[k] || () => undefined });
-  handler.doOne = doOne;
-  opts.defaults({
+var Navigator = exports.Navigator = function(sites, opts, fns) {
+  this.opts = Object.assign({
     times: 1,
     errors: 1,
     timeout: 10,
     loadDelay: 0,
     random: true,
     abTesting: false
-  });
+  }, opts);
+  // def is to do nothing
+  var customApi = [
+    "extraPrefs", "extraGlobals", "extraProperties",
+    "turnOff", "turnOn", "beforeOpen", "beforeClose"
+  ];
+  customApi.forEach(k => { this[k] = () => undefined; });
+  this.sites = sites.map(this.prepareSite.bind(this));
+  this.site = null;
+  this.half = null;
+  Object.keys(fns).forEach(k => { this[k] = fns[k]; });
 
-  handler.sites = sites;
-  handler.site = null;
-  handler.half = null;
-  handler.opts = opts;
-
-  if (sites.length === 0)
-    return handler.end();
-  
-  // prevent save file dialogs
-  prefs.set("browser.helperApps.alwaysAsk.force", false);
-  prefs.set("browser.helperApps.neverAsk.saveToDisk", saveMime.join(","));
-  prefs.set("browser.download.defaultFolder", "/tmp");
-  handler.extraPrefs(prefs);
-
-  addGlobals(function(w, cloner) {
-    // prevent js dialogs
-    w.alert = function() { };
-    w.confirm = function() { return false; };
-    w.prompt = function() { return null; };
-    w.print = function() { return false; };
-    w.__addEventListener = w.addEventListener;
-    w.addEventListener = function(eventType, fun, bubble) {
-    if (eventType.toLowerCase() !== "beforeunload")
-      return w.__addEventListener(eventType, fun, bubble);
-    };
-    // store exception messages
-    w.onerror = function(msg) {
-      handler.half.jsErrors.push(msg);
-    };
-    handler.extraGlobals(w, cloner);
-  });
-
-  handler.doOne();
+  console.log("handler initialized");
 };
 
-exports.prepareSite = function(site, opts) {
-  if (typeof site === "string") {
-    return {
-      url: site,
-      on: {times: [], netErrors: 0, jsErrors: []},
-      off: opts.abTesting ? {times: [], netErrors: 0, jsErrors: []} : undefined
-    };
-  }
-  return site;
-}
+Navigator.prototype = {
+  start: function() {
+    
+    // prevent save file dialogs
+    prefs.set("browser.helperApps.alwaysAsk.force", false);
+    prefs.set("browser.helperApps.neverAsk.saveToDisk", saveMime.join(","));
+    prefs.set("browser.download.defaultFolder", "/tmp");
+    this.extraPrefs(prefs);
 
-var pick = function(sites, opts) {
-  var shift = opts.random ? Math.floor(Math.random() * sites.length) : 0;
-  for (var i = 0; i < sites.length; i++) {
-    var site = sites[(shift + i) % sites.length];
-    if (!isSiteCompleted(site, opts))
+    addGlobals((w, cloner) => {
+      // prevent js dialogs
+      w.alert = function() { };
+      w.confirm = function() { return false; };
+      w.prompt = function() { return null; };
+      w.print = function() { return false; };
+      w.__addEventListener = w.addEventListener;
+      w.addEventListener = function(eventType, fun, bubble) {
+      if (eventType.toLowerCase() !== "beforeunload")
+        return w.__addEventListener(eventType, fun, bubble);
+      };
+      // store exception messages
+      w.onerror = msg => {
+        this.half.jsErrors.push(msg);
+      };
+      this.extraGlobals(w, cloner);
+    });
+
+    this.doOne();
+  },
+  prepareSite: function(site) {
+    if (typeof site === "string") {
+      site = {
+        url: site,
+        on: {times: [], netErrors: 0, jsErrors: []},
+        off: this.opts.abTesting ? {times: [], netErrors: 0, jsErrors: []} : undefined
+      };
+      this.extraProperties(site);
       return site;
-  }
-  return null;
-};
-
-var doOne = function() {
-  var site = pick(this.sites, this.opts);
-  if (!site)
-    return this.end(this.sites);
-  handler.site = site;
-
-  var half;
-  if (opts.abTesting) {
-    var onOrOff = ["on", "off"].filter(k => !isHalfCompleted(site[k], opts)).pick();
-    half = site[onOrOff];
-    half === site.on ? (handler.turnOn()) : (handler.turnOff());
-  } else {
-    half = site.on;
-  }
-  handler.half = half;
-
-
-  handler.beforeOpen();
-
-  cookieManager.removeAll();
-
-  var startTime, timeoutId;
-  tabs.open({
-    url: site.url,
-    inNewWindow: false,
-    onOpen: function(tab) {
-      startTime = (new Date()).getTime();
-      timeoutId = timers.setTimeout(function() {
-        which.errors++;
-        cbs.beforeClose && cbs.beforeClose(site, whichKey, tab, true);
-        tab.close();
-        doOne(sites, opts, cbs);
-      }, opts.timeout * 1000);
-    },
-    onLoad: function(tab) {
-      timers.clearTimeout(timeoutId);
-      var endTime = (new Date()).getTime();
-      which.times.push(endTime - startTime);
-
-      timers.setTimeout(function() {
-        cbs.beforeClose && cbs.beforeClose(site, whichKey, tab, false);
-        tab.close();
-        doOne(sites, opts, cbs);
-      }, opts.loadDelay * 1000);
     }
-  });
+    return site;
+  },
+  pick: function() {
+    var shift = this.opts.random ? Math.floor(Math.random() * this.sites.length) : 0;
+    for (var i = 0; i < this.sites.length; i++) {
+      var site = this.sites[(shift + i) % this.sites.length];
+      debugger;
+      if (!isSiteCompleted(site, this.opts))
+        return site;
+    }
+    return null;
+  },
+  doOne: function() {
+    this.site = this.pick();
+    if (!this.site)
+      return this.end();
 
+    if (this.opts.abTesting) {
+      var onOrOff = ["on", "off"].filter(k => !isHalfCompleted(this.site[k], this.opts)).pick();
+      this.half = this.site[onOrOff];
+      if (this.half === this.site.on)
+        this.turnOn();
+      else
+        this.turnOff();
+    } else {
+      this.half = this.site.on;
+    }
+
+    this.beforeOpen();
+
+    cookieManager.removeAll();
+
+    var startTime, timeoutId;
+    tabs.open({
+      url: this.site.url,
+      inNewWindow: false,
+      onOpen: tab => {
+        startTime = (new Date()).getTime();
+        timeoutId = timers.setTimeout(() => {
+          this.half.errors++;
+          this.beforeClose(tab, true);
+          tab.close();
+          this.doOne();
+        }, this.opts.timeout * 1000);
+      },
+      onLoad: tab => {
+        timers.clearTimeout(timeoutId);
+        var endTime = (new Date()).getTime();
+        this.half.times.push(endTime - startTime);
+
+        timers.setTimeout(() => {
+          this.beforeClose(tab, false);
+          tab.close();
+          this.doOne();
+        }, this.opts.loadDelay * 1000);
+      }
+    });
+  }
 };
