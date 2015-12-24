@@ -52,29 +52,30 @@ var isSiteCompleted = function(s, opts) {
 
 
 var Navigator = exports.Navigator = function(sites, opts, fns) {
-  this.opts = Object.assign({
+  // prototype chain is really messy
+  var n = Object.create(fns);
+  Object.assign(n, nproto);
+  var api = [
+    "extraPrefs", "extraGlobals", "extraProperties",
+    "turnOff", "turnOn", "beforeOpen", "beforeClose",
+    "end"
+  ];
+  api.forEach(k => { if (!fns[k]) n[k] = () => undefined; });
+  n.opts = Object.assign({
     times: 1,
     errors: 1,
     timeout: 10,
     loadDelay: 0,
     random: true,
     abTesting: false
-  }, opts);
-  // def is to do nothing
-  var customApi = [
-    "extraPrefs", "extraGlobals", "extraProperties",
-    "turnOff", "turnOn", "beforeOpen", "beforeClose"
-  ];
-  customApi.forEach(k => { this[k] = () => undefined; });
-  this.sites = sites.map(this.prepareSite.bind(this));
-  this.site = null;
-  this.half = null;
-  Object.keys(fns).forEach(k => { this[k] = fns[k]; });
-
-  console.log("handler initialized");
+  }, opts),
+  n.sites = sites.map(n.prepareSite.bind(n));
+  n.site = null;
+  n.half = null;
+  return n;
 };
 
-Navigator.prototype = {
+var nproto = {
   start: function() {
     
     // prevent save file dialogs
@@ -119,7 +120,6 @@ Navigator.prototype = {
     var shift = this.opts.random ? Math.floor(Math.random() * this.sites.length) : 0;
     for (var i = 0; i < this.sites.length; i++) {
       var site = this.sites[(shift + i) % this.sites.length];
-      debugger;
       if (!isSiteCompleted(site, this.opts))
         return site;
     }

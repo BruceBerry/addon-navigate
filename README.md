@@ -4,7 +4,7 @@ Addon-SDK module to navigate the browser to a list of URLs, one after the other.
 Use `new Handler(urls, options, callbacks)` to instantiate the navigator, then
 call `handler.start()`.
 
-Features supported out of the box through the `opts` parameter:
+Features supported out of the box through options:
 
 * `times`: Load the same site N times, recording load times and
   logging all js errors. (default=1)
@@ -18,46 +18,57 @@ Features supported out of the box through the `opts` parameter:
 * `abTesting`: A/B testing support. Load the same site twice, turning a
   specific feature on and off (default=false)
 
-New features can be added by defining optional callbacks on the handler object:
+The behavior can be modified by defining optional callbacks on the handler
+object:
 
-* `extraPrefs(prefs)`: use the `prefs` module from the addon-sdk to modify
-  preferences before sites are visited.
-* `extraGlobals(w, cloner)`: add properties on every site's global object before
-  any javascript code runs. `cloner` is `Cu.cloneInto`.
-* `extraProperties(site)`: add properties to the sites before they are
+* `extraPrefs(prefs)`: use the `prefs` module to modify preferences before
+  the navigation is started.
+* `extraGlobals(w, cloner)`: for each site, add properties on every site's
+  global object (`w`) before any javascript code runs.
+  `cloner` is `Cu.cloneInto`.
+* `extraProperties(site)`: add properties to a site before visiting it and
+  recording any statistic, called only once.
+* `beforeOpen()`: modify a site object right before the site is visited, called
+  each time.
+* `beforeClose(tab)`: modify a site object right before the page is closed. this
+  gives you access to the page (TODO: give something better than `tab`) for
+  examination.
 * `turnOn/turnOff()`: called during A/B testing to turn the feature on and off
   respectively.
-* `beforeOpen()`: gives you a chance to modify a site object before it is
-  loaded.
+* `end()`: called when all sites have been visited.
+
+These methods have access to the following instance properties:
+
+* `this.sites`: the current state of all sites.
+* `this.site`: the current site being visited.
+* `this.half`: the current site.(on|off) being visited. If `abTesting` is false,
+  this will always be equal to `this.site.on`.
+
+Note that these are not always defined. For example, `this.site` is not
+available in `end()`.
 
 ## Usage
 
     var {navigate} = require("addon-navigate");
+    var prefs = require("sdk/preferences/service");
 
-    navigate(["http://www.google.com", ...], {
-      times: 2,
-      errors: 1,
-      timeout: 10,
+    var n = new Navigator(["http://www.google.com", ...], {
+      times: 10,
+      errors: 4,
       loadDelay: 2,
-      random: true,
+      random: false,
       abtesting: true,
     }, {
-      end: function(sites) { /* save data */ },
-      extraPrefs: function(prefs) {
-        // supplies the prefs addon-sdk module
+      end: function() {
+        console.log("result", this.sites);
       },
       extraGlobals: function(w, cloner) {
-        // supplies an unwrapped `window` object and Cu.cloneInto
-        // change the javascript environment before any javascript code runs
+        w.__debug = true;
       },
-      turnOn: function() { /* turn on the feature you are A/B testing */ },
-      turnOff: function() { /* these are called every time */ },
-      beforeOpen: function(site, onOrOff) {
-        // gives you a chance to modify the site before it is loaded.
-        // the second argument is either "on" or "off"
+      turnOn: function() {
+        prefs.set("my.feature.enabled", true);
       },
-      beforeClose: function(site, onOrOff, tab, isTimeout) {
-        // gives you a chance to modify the page before it is closed
-        // TODO: pass the low-level tab browser
-      }
+      turnOff: function() {
+        prefs.set("my.feature.enabled", false);
+      },
     });
