@@ -7,7 +7,10 @@ module.exports = function(f) {
     if (ev.data.indexOf("http") !== 0)
       return;
     var docWin = Cu.waiveXrays(ev.subject);
-    return f(docWin, o => Cu.cloneInto(o, docWin));
+    var cloneFunction = function(f, obj, prop) {
+      obj[prop] = Cu.cloneInto(f, docWin, {cloneFunctions: true});
+    };
+    return f(docWin, cloneFunction);
   };
 
   events.on("content-document-global-created", observer, true);

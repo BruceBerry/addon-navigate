@@ -84,22 +84,22 @@ var nproto = {
     prefs.set("browser.download.defaultFolder", "/tmp");
     this.extraPrefs(prefs);
 
-    addGlobals((w, cloner) => {
+    addGlobals((w, cloneF) => {
       // prevent js dialogs
-      w.alert = function() { };
-      w.confirm = function() { return false; };
-      w.prompt = function() { return null; };
-      w.print = function() { return false; };
+      cloneF(() => undefined, w, "alert");
+      cloneF(() => false, w, "confirm");
+      cloneF(() => null, w, "prompt");
+      cloneF(() => false, w, "print");
       w.__addEventListener = w.addEventListener;
-      w.addEventListener = function(eventType, fun, bubble) {
-      if (eventType.toLowerCase() !== "beforeunload")
-        return w.__addEventListener(eventType, fun, bubble);
-      };
+      cloneF(function addEventListener(eventType, fun, bubble) {
+        if (eventType.toLowerCase() !== "beforeunload")
+          return w.__addEventListener(eventType, fun, bubble);
+      }, w, "addEventListener");
       // store exception messages
       w.onerror = msg => {
         this.half.jsErrors.push(msg);
       };
-      this.extraGlobals(w, cloner);
+      this.extraGlobals(w, cloneF);
     });
 
     this.doOne();

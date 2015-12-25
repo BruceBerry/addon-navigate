@@ -23,9 +23,8 @@ object:
 
 * `extraPrefs(prefs)`: use the `prefs` module to modify preferences before
   the navigation is started.
-* `extraGlobals(w, cloner)`: for each site, add properties on every site's
+* `extraGlobals(w, cloneF)`: for each site, add properties on every site's
   global object (`w`) before any javascript code runs.
-  `cloner` is `Cu.cloneInto`.
 * `extraProperties(site)`: add properties to a site before visiting it and
   recording any statistic, called only once.
 * `beforeOpen()`: modify a site object right before the site is visited, called
@@ -62,8 +61,11 @@ available in `end()`.
       end: function() {
         console.log("result", this.sites);
       },
-      extraGlobals: function(w, cloner) {
+      extraGlobals: function(w, cloneF) {
+        // simple properties can be defined directly
         w.__debug = true;
+        // cloneF is a shorthand to define functions using Cu.cloneInto
+        cloneF(msg => console.log(msg), w, "alert");
       },
       turnOn: function() {
         prefs.set("my.feature.enabled", true);
